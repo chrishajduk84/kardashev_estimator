@@ -16,14 +16,23 @@ class PowerEstimator:
         self.__precompute_historical()
 
     def __precompute_historical(self):
-        # COMPUTE NEWTON INTERPOLATION: https://en.wikipedia.org/wiki/Newton_polynomial
-        # O(n^2) complexity and space - this might take a while with many data points
+        # Create an ARIMA model for each dataset
+        # https://machinelearningmastery.com/arima-for-time-series-forecasting-with-python/
         # Input -> Data points
-        # Output -> Newton Polynomial
+        # Output -> Object with predict()/forecast() functionality
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
         for country, data in self._historical_data_source:
-            #print(f"{country} - {data}")
-            n = NewtonPolynomialInterpolator(data)
-            print(f"{country} - {n.predict(time.time())}")
+            print(f"{country} - {data}")
+            # n = NewtonPolynomialInterpolator(data)
+            # ax.plot(data[''])
+
+            # ax.plot(n.x_data, n.y_data)
+            # x_steps = [x for x in range(int(n.x_data[0]),int(time.time()),10000)]
+            # ax.plot(x_steps, [n.predict(x) for x in x_steps])
+            # plt.show()
+            # print(f"{country} - {n.predict(time.time())} - {n.coefficients} - {data}")
+            input("CONTINUE?")
 
 
     def to_dict(self) -> typing.Dict:
