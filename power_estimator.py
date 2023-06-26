@@ -3,6 +3,7 @@ import typing
 
 from data_source import DataSource
 from interpolation import NewtonPolynomialInterpolator
+from auto_regression import PowerRegression
 
 
 class PowerEstimator:
@@ -21,9 +22,11 @@ class PowerEstimator:
         # Input -> Data points
         # Output -> Newton Polynomial
         for country, data in self._historical_data_source:
-            #print(f"{country} - {data}")
-            n = NewtonPolynomialInterpolator(data)
-            print(f"{country} - {n.predict(time.time())}")
+            
+            #n = NewtonPolynomialInterpolator(data)
+            p = PowerRegression(data)
+            print(f"{country} - {p.predict(time.time())}")
+
 
 
     def to_dict(self) -> typing.Dict:
