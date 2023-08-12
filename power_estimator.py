@@ -21,23 +21,21 @@ class PowerEstimator:
         # https://machinelearningmastery.com/arima-for-time-series-forecasting-with-python/
         # Input -> Data points
         # Output -> Object with predict()/forecast() functionality
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
+        total_power_output = [0, [0, 0]]
         for country, data in self._historical_data_source:
-            #n = NewtonPolynomialInterpolator(data)
-            p = PowerRegression(data)
-            print(f"{country} - {p.predict(time.time())}")
+            try:
+                p = PowerRegression(data)
+                mean, ci = p.predict(time.time())
+                #print(p.get_time_series())
+                print(f"{country} - {mean}TW")
 
-            #print(f"{country} - {data}")
-            # n = NewtonPolynomialInterpolator(data)
-            # ax.plot(data[''])
+                total_power_output[0] += mean
+                total_power_output[1][0] += ci[0]
+                total_power_output[1][1] += ci[1]
+            except ValueError:
+                print(f"{country} has no data available")
 
-            # ax.plot(n.x_data, n.y_data)
-            # x_steps = [x for x in range(int(n.x_data[0]),int(time.time()),10000)]
-            # ax.plot(x_steps, [n.predict(x) for x in x_steps])
-            # plt.show()
-            # print(f"{country} - {n.predict(time.time())} - {n.coefficients} - {data}")
-            #input("CONTINUE?")
+        print(f"Global Power Consumption: {total_power_output}")
 
     def to_dict(self) -> typing.Dict:
         return self._historical_data_source.data

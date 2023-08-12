@@ -1,3 +1,5 @@
+import bisect
+import copy
 import math
 import time
 
@@ -16,10 +18,8 @@ def differenced_series(data, interval=1):
 def linear_interpolation(x1, x2, y1, y2, x_interpolate):
     # Interpolate to get the predicted value for the requested x_interpolate
     m = (y2 - y1) / (x2 - x1)
-    # x = unix_time - (self.interpolated_data[0][-1] + self.data_step * (number_of_predictions - 1))
     b = y1
-    print(f"m: {m}, x: {x_interpolate}, b: {b}")
-    # print(f"unix: {unix_time}, data_steps: {(self.interpolated_data[0][-1] + self.data_step * (number_of_predictions - 1))}")
+    # print(f"m: {m}, x: {x_interpolate}, b: {b}")
     prediction = m * x_interpolate + b
     return prediction
 
@@ -36,11 +36,7 @@ class PowerRegression:
         self.data_step = self.__min_data_step(self.data)
         # Are any data steps missing? Do we need to interpolate for those?
         interpolated_y, interpolated_x = self.__interpolate_data_steps(self.data, self.data_step)
-        print(self.data_step)
-        #print(self.data)
-        print(interpolated_y)
-        print(interpolated_x)
-        self.interpolated_data = (interpolated_x, interpolated_y)
+        self.interpolated_data = [interpolated_x, interpolated_y, copy.deepcopy(interpolated_y), copy.deepcopy(interpolated_y)]       # (x, y, y_low, y_high)
         self.model = None
         self.fit = None
 
@@ -84,6 +80,9 @@ class PowerRegression:
             new_values.append(intervalue)
         return new_values, new_steps
 
+    def reset(self):
+        self.__init__(self.data)
+
     def fit_model(self):
         """
         ARIMA model uses 3 parameters (in addition to the data)
@@ -98,17 +97,62 @@ class PowerRegression:
         :return: None
         """
 
-        fig, ax = plt.subplots()
-
-        ax.plot(self.interpolated_data[0], self.interpolated_data[1])
-        #x_steps = [x for x in range(int(interpolated_x),int(time.time()),10000)]
-        #ax.plot(x_steps, [n.predict(x) for x in x_steps])
-        plt.show()
         predictions = []
         actual = []
 
         self.model = ARIMA(self.interpolated_data[1], order=(len(self.interpolated_data[1]), 0, len(self.interpolated_data[1])-1))
         self.fit = self.model.fit()
+
+        # Model Print Debug
+        # print(fit.summary())
+        # residuals = DataFrame(fit.resid)
+        # residuals.plot()
+        # plt.show()
+        # residuals.plot(kind='kde')
+        # plt.show()
+        # print(residuals.describe())
+
+    def get_time_series(self, start_time=0, end_time=time.time()):
+        """
+        Process:
+         * Figure out how many forecasted time steps need to be made
+         * Interpolate the exact prediction between two time-steps
+         * Return the exact prediction with a confidence interval
+        :param unix_time: unix timestamp where the desired prediction should be made
+        :return: tuple consisting of ( (x, y_predicted), (x, y_ci_low, y_ci_high) )
+        """
+
+        # Check if start and end_time is within existing data
+        if start_time < 0 or end_time < 0:
+            raise ValueError(f"Start time ({start_time}) or end time ({end_time}) before unix epoch is not supported")
+
+        # Verify end time is after start time
+        if start_time > end_time:
+            raise ValueError(f"End time ({end_time}) precedes start time ({start_time})")
+
+        if end_time - start_time < self.data_step:
+            raise ValueError(f"Requested data range ({start_time} -> {end_time}) "
+                             f"is smaller than the minimum step size {self.data_step}")
+
+        # If the requested data is outside of the data stored in memory, lets try to predict it
+        if end_time > self.interpolated_data[0][-1]:
+            self.predict(end_time)
+
+        # Create new tuple object from sub-array of self.interpolated_data
+        start_index = bisect.bisect_left(self.interpolated_data[0], start_time)
+        end_index = bisect.bisect_right(self.interpolated_data[0], end_time)
+
+        data = [self.interpolated_data[0][start_index:end_index], self.interpolated_data[1][start_index:end_index]]
+
+        limited_ci = [[], [], []]
+        for i in range(len(self.interpolated_data[0])):
+            if self.interpolated_data[1][i] != self.interpolated_data[2][i] or \
+                    self.interpolated_data[1][i] != self.interpolated_data[3][i]:
+                limited_ci[0].append(self.interpolated_data[0][i])
+                limited_ci[1].append(self.interpolated_data[2][i])
+                limited_ci[2].append(self.interpolated_data[3][i])
+
+        return (data, limited_ci)
 
     def predict(self, unix_time):
         """
@@ -121,50 +165,78 @@ class PowerRegression:
         """
 
         number_of_predictions = math.ceil((unix_time - self.interpolated_data[0][-1])/self.data_step)
-        print(f"Predicting {number_of_predictions} time steps to achieve {unix_time} prediction")
+        # print(f"Predicting {number_of_predictions} time steps to achieve {unix_time} prediction")
 
-        if self.model is None or self.fit is None:
-            self.fit_model()
+        # Check if data already exists within self.interpolated_data, if so - we can skip the modeling and prediction step
+        if number_of_predictions > 0:
 
-        # Model Forecasting:
-        # OLD: yhat = fit.forecast(steps=number_of_predictions)
-        # NEW: fit.get_forecast() returns PredictionResults object which contains .conf_int() and .predicted_mean (equivalent to y_hat)
-        forecast = self.fit.get_forecast(steps=number_of_predictions)
-        yhat = forecast.predicted_mean
-        yhat_conf_interval = forecast.conf_int()
+            if self.model is None or self.fit is None:
+                self.fit_model()
 
-        print(yhat)
-        print(yhat_conf_interval)
-        #print(fit.summary())
-        #residuals = DataFrame(fit.resid)
-        #residuals.plot()
-        # plt.show()
-        #residuals.plot(kind='kde')
-        # plt.show()
-        #print(residuals.describe())
+            # Model Forecasting:
+            # OLD: yhat = fit.forecast(steps=number_of_predictions)
+            # NEW: fit.get_forecast() returns PredictionResults object which contains .conf_int() and .predicted_mean (equivalent to y_hat)
+            forecast = self.fit.get_forecast(steps=number_of_predictions)
+            yhat = forecast.predicted_mean
+            yhat_conf_interval = forecast.conf_int()
 
-        # Interpolate to get the predicted value for the requested time stamp
-        # m = (yhat[-1] - yhat[-2])/self.data_step
-        #
-        x = unix_time - (self.interpolated_data[0][-1] + self.data_step*(number_of_predictions - 1))
-        # b = yhat[-2]
-        # print(f"m: {m}, x: {x}, b: {b}")
-        prediction = linear_interpolation(0, self.data_step, yhat[-2], yhat[-1], x)
-        confidence_interval = [linear_interpolation(0, self.data_step, yhat_conf_interval[-2][0], yhat_conf_interval[-1][0], x),
-                               linear_interpolation(0, self.data_step, yhat_conf_interval[-2][1], yhat_conf_interval[-1][1], x)]
+            if len(yhat) != len(yhat_conf_interval):
+                raise AssertionError(f"yhat ({len(yhat)}) and yhat_conf_interval ({len(yhat_conf_interval)})"
+                                     f" should be the same length")
 
-        print(f"unix: {unix_time}, data_steps: {(self.interpolated_data[0][-1] + self.data_step*(number_of_predictions - 1))}")
-        # prediction = m*x + b
-        print(prediction)
-        print(confidence_interval)
+            for i in range(len(yhat)):
+                # Extend x-axis
+                self.interpolated_data[0].append(self.interpolated_data[0][-1] + self.data_step)
+                # Extend y-axis
+                self.interpolated_data[1].append(yhat[i])
+                # Extend low confidence interval
+                self.interpolated_data[2].append(yhat_conf_interval[i][0])
+                # Extend high confidence interval
+                self.interpolated_data[3].append(yhat_conf_interval[i][1])
+
+        # Figure out the data index to interpolate against
+        for inter_index in range(len(self.interpolated_data[0])):
+            if unix_time <= self.interpolated_data[0][inter_index]:
+                break
+
+        if inter_index == 0:
+            raise AssertionError(f"inter_index should not be 0: {self.interpolated_data}")
+
+        # Verify all data is above 0 (can't produce negative power)
+        for i in range(len(self.interpolated_data[0])):
+            if self.interpolated_data[1][i] < 0:
+                self.interpolated_data[1][i] = 0
+            if self.interpolated_data[2][i] < 0:
+                self.interpolated_data[2][i] = 0
+            if self.interpolated_data[3][i] < 0:
+                self.interpolated_data[3][i] = 0
+
+        # Interpolate between the closest two predictions/data points to get the predicted value for the requested time stamp
+        x = unix_time - self.interpolated_data[0][inter_index-1]
+
+        prediction = linear_interpolation(0, self.data_step, self.interpolated_data[1][inter_index-1], self.interpolated_data[1][inter_index], x)
+        confidence_interval = [linear_interpolation(0, self.data_step, self.interpolated_data[2][inter_index-1], self.interpolated_data[2][inter_index], x),
+                               linear_interpolation(0, self.data_step, self.interpolated_data[3][inter_index-1], self.interpolated_data[3][inter_index], x)]
+
+        # Print debug
+        # print(yhat)
+        # print(yhat_conf_interval)
+        # print(f"unix: {unix_time}, data_steps: {(self.interpolated_data[0][-1] + self.data_step * (number_of_predictions - 1))}")
+        # print(prediction)
+        # print(confidence_interval)
         #print(yhat[-1])
         #print(yhat[-2])
 
         # Plotting debug
-        plt.plot([self.interpolated_data[0][-1] + self.data_step*i for i in range(1, number_of_predictions+1)], yhat, 'bo')
-        plt.plot(self.interpolated_data[0], self.interpolated_data[1], 'r+')
-        plt.plot(unix_time, prediction, 'gx')
-        plt.show()
+        # fig, ax = plt.subplots()
+        # plt.figure(1)
+        # ax.plot(self.interpolated_data[0], self.interpolated_data[2], 'b-')
+        # ax.plot(self.interpolated_data[0], self.interpolated_data[3], 'b-')
+        # ax.plot(self.interpolated_data[0], self.interpolated_data[1], 'r+')
+        # # ax.plot([self.interpolated_data[3][-i] for i in range(1, number_of_predictions+1)], yhat, 'bo')
+        # ax.plot(unix_time, prediction, 'gx')
+        # #plt.show()
+        # plt.pause(0.1)
 
         if prediction < 0:
             prediction = 0
