@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
 from power_estimator import PowerEstimator
 from data_source import EiaJsonDataSource
 import json
@@ -14,17 +14,33 @@ app = Flask(__name__)
 ds = EiaJsonDataSource("data/WorldWideYearlyEnergyConsumption.json")
 pe = PowerEstimator(historical_data_source=ds)
 
-@app.get("/power")
-def get_power():
+
+class CountryCodeConvertercountry:
+    pass
+
+
+@app.get("/power/")
+@app.get("/power/<country>")
+def get_power(country=None):
     """ Will calculate and estimate total energy consumption of the entire world
         returns json object containing total power and breakdown by country
     """
-    # Update cached data with live data
-    # TODO
+    # TODO: Update cached data with live data
 
-    # Get cached data from the PowerEstimator
-    print(ds.country_data("CAN"))
-    return json.dumps(pe.to_dict())
+    if country is None:
+        return json.dumps(pe.to_dict())
+
+    if len(country) == 3:
+        return json.dumps(pe[country])
+    else:
+        code = CountryCodeConvertercountry().to_iso3(country)
+        try:
+            return json.dumps(pe[code])
+        except ValueError as e:
+            abort(404)
+    # # Get cached data from the PowerEstimator
+    # print(ds.country_data("CAN"))
+    # return json.dumps(pe.to_dict())
 
 
 

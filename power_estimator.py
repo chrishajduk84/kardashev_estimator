@@ -22,11 +22,13 @@ class PowerEstimator:
         # Input -> Data points
         # Output -> Object with predict()/forecast() functionality
         total_power_output = [0, [0, 0]]
+        self.regression_data = {}
         for country, data in self._historical_data_source:
             try:
                 p = PowerRegression(data)
                 mean, ci = p.predict(time.time())
                 #print(p.get_time_series())
+                self.regression_data[country] = p
                 print(f"{country} - {mean}TW")
 
                 total_power_output[0] += mean
@@ -38,7 +40,7 @@ class PowerEstimator:
         print(f"Global Power Consumption: {total_power_output}")
 
     def to_dict(self) -> typing.Dict:
-        return self._historical_data_source.data
+        return self.regression_data
 
 
 
